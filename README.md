@@ -20,12 +20,18 @@ episode structure, a description, and the final spoken text split by roles.
 - **Article summarizer** as a standalone tool (popular and scientific articles);
   the result can be attached as a source for the podcast.
 - **Episode formats:** guest interview, two-host discussion, solo monologue,
-  review/breakdown, storytelling, Q&A.
-- **Tone & style:** friendly, expert, ironic, motivating, academic, and
-  fairytale (with a safe, child-appropriate default voice).
+  review/breakdown, storytelling, Q&A, and **fairytale** (a single narrator
+  and a story arc instead of podcast blocks).
+- **Tone & style:** friendly, expert, ironic, motivating, academic, fairytale.
+  The fairytale style combines with any format (e.g. a scientific topic told in
+  fairytale language for children). Child-safety rules turn on automatically for
+  a child audience and can be overridden in the extra notes; the TTS voice is
+  chosen as child or adult accordingly.
 - **Spoken text by roles** (HOST / GUEST) with carried-over context between
-  blocks and a final editorial pass (removes repeated introductions, mid-episode
-  greetings, verbatim repetitions, and unifies notation such as E/Z isomers).
+  blocks and a final editorial pass: removes repeated introductions and
+  mid-episode greetings, fixes role confusion and "thanking oneself", merges
+  consecutive lines of the same speaker, trims verbatim repetitions, and unifies
+  notation (e.g. E/Z isomers).
 - **TTS voice recommendations** (gender, age, timbre, pace, emotion).
 - **Smart regeneration:** when parameters change, the app asks from which step
   to rebuild (structure only / plan + structure / everything from ideas, etc.).
@@ -59,7 +65,7 @@ episode structure, a description, and the final spoken text split by roles.
     │   └── prompts.py              # All system prompts
     ├── services/
     │   ├── auth_service.py         # Registration and login
-    │   ├── db_service.py           # SQLite: users, materials, projects
+    │   ├── db_service.py           # SQLite: users, materials, projects, mixed-word dictionary
     │   ├── export_service.py       # Word (.docx) export
     │   ├── llm_service.py          # OpenAI call wrapper, JSON parsing
     │   └── source_service.py       # Text extraction from files and URLs

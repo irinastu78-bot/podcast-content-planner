@@ -14,19 +14,36 @@ from openai import OpenAI
 from core.prompts import SYSTEM_PROMPT
 
 # --- Проброс секретов из st.secrets в переменные окружения ---
-# Локально ключи берутся из .env (python-dotenv), в Streamlit Cloud — из st.secrets.
-# Этот блок должен выполниться ДО создания клиента OpenAI ниже.
-try:
-    import streamlit as st
-    for _key in ("OPENAI_API_KEY", "OPENAI_MODEL", "DB_PATH"):
-        try:
-            if _key in st.secrets and not os.getenv(_key):
-                os.environ[_key] = str(st.secrets[_key])
-        except Exception:
-            pass  # st.secrets может бросать, если файла секретов нет
-except Exception:
-    pass  # локально streamlit-секреты могут отсутствовать — берём из .env
+# Локально ключи берутся из .env (python-dotenv), в Streamlit Cloud — из
+# st.secrets. Обращение к st.secrets делаем максимально осторожно: если файла
+# секретов нет (обычный локальный запуск), НЕ трогаем st.secrets вообще, чтобы
+# не спровоцировать инициализацию Streamlit и предупреждения "No secrets found".
+def _bridge_streamlit_secrets() -> None:
+    try:
+        from streamlit.runtime.secrets import secrets_singleton
+    except Exception:
+        return
+    try:
+        # Проверяем наличие файла секретов БЕЗ доступа к значениям.
+        if not secrets_singleton.load_if_toml_exists():
+            return
+    except Exception:
+        return
+    try:
+        import streamlit as st
+        for _key in ("OPENAI_API_KEY", "OPENAI_MODEL", "DB_PATH"):
+            try:
+                if _key in st.secrets and not os.getenv(_key):
+                    os.environ[_key] = str(st.secrets[_key])
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+_bridge_streamlit_secrets()
 # --------------------------------------------------------------
+
 
 # Модель по умолчанию. gpt-4o-mini — дёшево и качественно для текста.
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")

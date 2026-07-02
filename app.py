@@ -93,7 +93,8 @@ USER_ID = st.session_state.user["id"]
 #  СПИСКИ И ИНИЦИАЛИЗАЦИЯ
 # =====================================================================
 FORMAT_OPTIONS = ["соло-монолог", "интервью с гостем", "дискуссия двух ведущих",
-                  "обзор/разбор", "сторителлинг", "вопрос-ответ"]
+                  "обзор/разбор", "сторителлинг", "вопрос-ответ", "сказка"]
+
 FREQ_OPTIONS = ["ежедневно", "2 раза в неделю", "еженедельно",
                 "раз в две недели", "ежемесячно"]
 TONE_OPTIONS = ["дружелюбный", "экспертный", "ироничный",
@@ -181,10 +182,18 @@ def resolve_material() -> str:
     return "\n\n".join(parts)[:20000]
 
 
+def get_user_mixed_map() -> dict:
+    """Пользовательский словарь замен смешанных слов (общий на пользователя)."""
+    try:
+        return db_service.get_mixed_terms(USER_ID)
+    except Exception:
+        return {}
+
+
 # ---- Снимок состояния для определения «есть несохранённые изменения» ----
 def build_project_data() -> dict:
     return {
-        "params": st.session_state.params,
+        "params": collect_params(),
         "ideas": st.session_state.ideas,
         "content_plan": st.session_state.content_plan,
         "details": st.session_state.details,
@@ -196,6 +205,7 @@ def build_project_data() -> dict:
         "horizon": st.session_state.p_horizon,
         "n_ideas": st.session_state.p_n_ideas,
     }
+
 
 
 def make_snapshot() -> str:
@@ -253,8 +263,13 @@ def load_project_into_state(proj: dict):
     st.session_state.last_gen_params = d.get("params")
     st.session_state.current_project_id = proj["id"]
     st.session_state.current_project_title = proj["title"]
+    # Форсируем раскрытие блока доп. параметров, чтобы виджеты внутри
+    # экспандера гарантированно перечитали загруженные значения
+    # (Streamlit не пересоздаёт виджеты в свёрнутом экспандере).
+    st.session_state["_force_adv_open"] = True
     # Фиксируем снимок «чистого» загруженного состояния.
     st.session_state.saved_snapshot = make_snapshot()
+
 
 
 # =====================================================================
@@ -291,6 +306,7 @@ def _step_spoken(params, material, status_box=None, do_review=True):
     structure = details["structure"]
     blocks = structure.get("blocks", [])
     all_lines = []
+    user_map = get_user_mixed_map()
 
     box = status_box if status_box is not None else st
     with box.status("🎤 Генерирую текст для озвучки…", expanded=True) as status:
@@ -303,21 +319,20 @@ def _step_spoken(params, material, status_box=None, do_review=True):
             all_lines.extend(generator.generate_spoken_block(
                 params, episode, block, material_text=material,
                 done_lines=all_lines,
-                block_index=bi + 1, block_total=len(blocks)))
+                block_index=bi + 1, block_total=len(blocks),
+                user_map=user_map))
         if do_review:
             status.update(label="Финальная вычитка текста…")
-            all_lines = generator.review_full_spoken_text(params, all_lines)
+            all_lines = generator.review_full_spoken_text(
+                params, all_lines, user_map=user_map)
         status.update(label="Готовлю рекомендации по голосам…")
         st.session_state.spoken_text = all_lines
         st.session_state.tts_voices = generator.generate_tts_recommendation(params)
         status.update(label="Готово ✅", state="complete", expanded=False)
 
 
-
 def request_chain(upto: str, *, from_step: str, episode=None):
-    """Ставит задание на пересборку и перезапускает прогон.
-    Тяжёлая работа выполнится в чистом прогоне (execute_pending_job),
-    чтобы не было гонки виджетов с одновременными кликами."""
+    """Ставит задание на пересборку и перезапускает прогон."""
     st.session_state.pending_job = {
         "upto": upto, "from_step": from_step, "episode": episode}
     st.session_state.regen_ask = None
@@ -406,9 +421,6 @@ def render_regen_dialog(target, episode):
 
 # =====================================================================
 #  ВЫПОЛНЕНИЕ ОТЛОЖЕННОГО ЗАДАНИЯ
-#  Для шага "spoken" индикатор рисуется под кнопкой озвучки (см. шаг 4),
-#  поэтому если задание — только spoken, отложим его исполнение до места
-#  кнопки. Остальные задания выполняем здесь.
 # =====================================================================
 _pending = st.session_state.get("pending_job")
 _run_spoken_inline = bool(_pending and _pending.get("upto") == "spoken"
@@ -467,7 +479,6 @@ with st.sidebar:
                         st.rerun()
                 with cc2:
                     if st.button("Отмена", key="load_cancel"):
-                        # Возврат на текущий проект в селекторе при следующем прогоне.
                         st.session_state.project_selector = (
                             st.session_state.get("last_loaded_label")
                             or NEW_PROJECT_LABEL)
@@ -489,11 +500,22 @@ with st.sidebar:
     st.selectbox("Формат выпусков *", FORMAT_OPTIONS, key="p_format")
     st.selectbox("Частота публикаций *", FREQ_OPTIONS, key="p_frequency")
 
+    # Пояснение для формата «сказка»: единый рассказчик и безопасность по аудитории.
+    if "сказк" in (st.session_state.get("p_format") or "").lower():
+        st.info("Формат «Сказка»: единый рассказчик, поле собеседника не "
+                "используется, структура строится по сюжетной арке. Правила "
+                "детской безопасности включаются автоматически, если аудитория "
+                "детская (можно переопределить в доп. пожеланиях: «для взрослых» "
+                "или «для детей»).")
+
+
     changed = count_changed_params()
     adv_title = "Дополнительные параметры"
     if changed:
         adv_title += f" (изменено: {changed})"
-    with st.expander(adv_title, expanded=bool(changed)):
+    _adv_open = bool(changed) or st.session_state.pop("_force_adv_open", False)
+    with st.expander(adv_title, expanded=_adv_open):
+
         st.text_input("Название подкаста", key="p_podcast_name")
         st.text_input("Имя ведущего(-их)", key="p_host_name")
         st.text_input("Имя собеседника", key="p_guest_name",
@@ -661,6 +683,34 @@ with st.sidebar:
                 st.rerun()
             except Exception as e:
                 st.error(f"Ошибка: {e}")
+
+    # --- Словарь исправлений (смешанные слова) ---
+    with st.expander("Словарь исправлений (смешанные слова)"):
+        st.caption("Общий для всех ваших проектов. Слева — как модель выводит "
+                   "(смешанный алфавит), справа — как нужно. Применяется "
+                   "автоматически при генерации текста.")
+        try:
+            import pandas as pd
+            terms = db_service.list_mixed_terms(USER_ID)
+            df = pd.DataFrame(
+                [{"Найдено (смешанное)": t["wrong"], "Как нужно": t["correct"]}
+                 for t in terms],
+                columns=["Найдено (смешанное)", "Как нужно"])
+            edited = st.data_editor(
+                df, num_rows="dynamic", use_container_width=True,
+                key="mixed_terms_editor")
+            if st.button("💾 Сохранить словарь", key="save_mixed_terms"):
+                # Пересобираем словарь: удаляем старые, записываем актуальные.
+                for t in terms:
+                    db_service.delete_mixed_term(USER_ID, t["id"])
+                for _, row in edited.iterrows():
+                    db_service.upsert_mixed_term(
+                        USER_ID, str(row.get("Найдено (смешанное)", "")),
+                        str(row.get("Как нужно", "")))
+                st.success("Словарь сохранён.")
+                st.rerun()
+        except Exception as e:
+            st.caption(f"(Редактор словаря недоступен: {e})")
 
 
 # =====================================================================
@@ -859,14 +909,15 @@ if st.session_state.get("details"):
         "Финальная вычитка текста", value=True, key="spoken_do_review",
         help="После сборки текста по блокам запускается дополнительный проход "
              "редактора по всему выпуску целиком: убирает повторные "
-             "представления гостя и приветствия в середине, сокращает "
-             "дословные повторы тезисов, унифицирует обозначения E/Z и "
-             "сглаживает стыки блоков. Добавляет один запрос к модели "
-             "(чуть дольше). Можно отключить для коротких выпусков.")
+             "представления гостя и приветствия в середине, исправляет путаницу "
+             "ролей и благодарности «самому себе», склеивает подряд идущие "
+             "реплики одного говорящего, сокращает дословные повторы, "
+             "унифицирует обозначения E/Z и сглаживает стыки блоков. Добавляет "
+             "один запрос к модели (чуть дольше). Можно отключить для коротких "
+             "выпусков.")
     spoken_btn = st.button("🎤 Сгенерировать текст для озвучки")
     # Место под индикатор прогресса — прямо под кнопкой.
     spoken_status_box = st.empty()
-
 
     if spoken_btn:
         episode = st.session_state.details.get("episode") or {}
@@ -880,26 +931,59 @@ if st.session_state.get("details"):
             and st.session_state.regen_ask[0] == "spoken"):
         render_regen_dialog("spoken", st.session_state.regen_ask[1])
 
-    # Если стоит отложенное задание именно на озвучку — выполняем его здесь,
-    # чтобы индикатор отрисовался под кнопкой.
+    # Отложенное задание на озвучку выполняем здесь (индикатор под кнопкой).
     if _run_spoken_inline:
         execute_pending_job(spoken_status_box=spoken_status_box)
 
     if st.session_state.get("spoken_text"):
         st.markdown("#### Произносимый текст")
 
-        # --- Диагностика: слова со смешанным алфавитом ---
+        # --- Диагностика: новые слова со смешанным алфавитом ---
+        user_map = get_user_mixed_map()
         mixed = generator._collect_mixed_words(
             [l for l in st.session_state.spoken_text
-             if l.get("speaker") != "__block__"])
+             if l.get("speaker") != "__block__"],
+            user_map=user_map)
         if mixed:
             uniq = sorted(set(mixed), key=str.lower)
-            st.caption("⚠️ Найдены слова со смешанным алфавитом (русские + "
+            st.warning("⚠️ Найдены слова со смешанным алфавитом (русские + "
                        "латинские буквы в одном слове): "
                        + ", ".join(f"«{w}»" for w in uniq)
-                       + ". Их стоит занести в словарь исправлений "
-                         "(_MIXED_FIX_MAP в core/generator.py), чтобы они "
-                         "чинились автоматически.")
+                       + ". Заполните, как их писать правильно — замены "
+                         "сохранятся в ваш словарь и будут применяться "
+                         "автоматически при следующих генерациях.")
+            try:
+                import pandas as pd
+                suggest = pd.DataFrame(
+                    [{"Найдено (смешанное)": w, "Как нужно": ""} for w in uniq],
+                    columns=["Найдено (смешанное)", "Как нужно"])
+                fixed = st.data_editor(
+                    suggest, use_container_width=True,
+                    key="mixed_suggest_editor")
+                if st.button("💾 Сохранить в словарь и применить",
+                             key="apply_mixed_suggest"):
+                    saved = 0
+                    for _, row in fixed.iterrows():
+                        wrong = str(row.get("Найдено (смешанное)", "")).strip()
+                        correct = str(row.get("Как нужно", "")).strip()
+                        if wrong and correct:
+                            db_service.upsert_mixed_term(USER_ID, wrong, correct)
+                            saved += 1
+                    if saved:
+                        # Применяем свежий словарь к уже готовому тексту.
+                        new_map = get_user_mixed_map()
+                        fix_map = generator._merged_fix_map(new_map)
+                        for ln in st.session_state.spoken_text:
+                            ln["text"] = generator._fix_mixed_language(
+                                ln.get("text", ""), fix_map)
+                        st.success(f"Сохранено записей: {saved}. "
+                                   "Текст обновлён.")
+                        st.rerun()
+                    else:
+                        st.warning("Заполните столбец «Как нужно».")
+            except Exception as e:
+                st.caption(f"(Таблица подсказок недоступна: {e}) "
+                           "Слова можно добавить в словарь в боковой панели.")
 
         for line in st.session_state.spoken_text:
             speaker = (line.get("speaker") or "").strip()
@@ -998,7 +1082,6 @@ if st.session_state.ideas:
 
     # --- Кнопка 1: Сохранить изменения (перезапись текущего проекта) ---
     with col_save:
-        # Яркая и активная — только если проект существует И есть изменения.
         save_disabled = (not existing_id) or (not has_changes)
         if st.button("💾 Сохранить изменения",
                      type="primary" if has_changes else "secondary",
@@ -1011,7 +1094,8 @@ if st.session_state.ideas:
                                           proj_title, build_project_data())
                 st.session_state.current_project_title = proj_title
                 st.session_state.saved_snapshot = make_snapshot()
-                st.session_state.last_loaded_label = None
+                st.session_state.last_loaded_label = st.session_state.get(
+                    "project_selector")
                 st.success("Изменения сохранены в текущем проекте.")
 
     # --- Кнопка 2: Сохранить как новый проект ---
@@ -1025,7 +1109,7 @@ if st.session_state.ideas:
                 st.session_state.current_project_id = new_id
                 st.session_state.current_project_title = proj_title
                 st.session_state.saved_snapshot = make_snapshot()
-                st.session_state.last_loaded_label = None
+                # метку не сбрасываем: снапшот обновлён, изменений больше нет
                 st.success(f"Создан новый проект: «{proj_title}».")
 
     # Подсказка о разнице между кнопками и состоянии изменений.

@@ -27,3 +27,15 @@ env/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Personal
+report.md
+portfolio.md
+resume.md
+commercial_offer.md
+commoff.md
+comm*
+*bak*
+*tmp*
+*.docx
+~$*.docx

@@ -1,9 +1,8 @@
 """
 services/db_service.py
 Постоянное хранение данных в SQLite.
-Таблицы: users (пользователи), materials (источники), projects (подкасты).
-На первом этапе используются функции для users; таблицы materials и
-projects создаются заранее, наполним их функциями на следующем этапе.
+Таблицы: users (пользователи), materials (источники), projects (подкасты),
+mixed_terms (пользовательский словарь исправлений смешанных слов).
 """
 
 from __future__ import annotations
@@ -55,6 +54,16 @@ def init_db() -> None:
                 data        TEXT NOT NULL,          -- весь проект в JSON
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS mixed_terms (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                wrong      TEXT NOT NULL,           -- как модель выводит (смешанное)
+                correct    TEXT NOT NULL,           -- как должно быть
+                created_at TEXT NOT NULL,
+                UNIQUE (user_id, wrong),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             """
@@ -220,4 +229,51 @@ def delete_project(user_id: int, project_id: int) -> None:
         conn.execute(
             "DELETE FROM projects WHERE user_id = ? AND id = ?",
             (user_id, project_id),
+        )
+
+
+# --- Словарь исправлений смешанных слов (общий на пользователя) ---
+
+def get_mixed_terms(user_id: int) -> dict[str, str]:
+    """Возвращает пользовательский словарь замен как dict {wrong: correct}."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT wrong, correct FROM mixed_terms WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+    return {r["wrong"]: r["correct"] for r in rows}
+
+
+def list_mixed_terms(user_id: int) -> list[dict]:
+    """Список записей словаря (для отображения/редактирования)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, wrong, correct, created_at FROM mixed_terms "
+            "WHERE user_id = ? ORDER BY id DESC",
+            (user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_mixed_term(user_id: int, wrong: str, correct: str) -> None:
+    """Добавляет или обновляет пару замены. Пустые значения игнорируются."""
+    wrong = (wrong or "").strip()
+    correct = (correct or "").strip()
+    if not wrong or not correct:
+        return
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO mixed_terms (user_id, wrong, correct, created_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(user_id, wrong) DO UPDATE SET correct = excluded.correct",
+            (user_id, wrong, correct, _now()),
+        )
+
+
+def delete_mixed_term(user_id: int, term_id: int) -> None:
+    """Удаляет запись словаря по id."""
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM mixed_terms WHERE user_id = ? AND id = ?",
+            (user_id, term_id),
         )
