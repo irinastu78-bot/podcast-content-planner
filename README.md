@@ -41,7 +41,12 @@ episode structure, a description, and the final spoken text split by roles.
   summary to Word, the project and TTS script to JSON. Word files include a
   technical header (podcast name, duration, audience, style, participant names).
 - **Text quality control:** automatic cleanup of mixed-alphabet words
-  (Cyrillic + Latin) with diagnostics for unrecognized cases.
+  (Cyrillic + Latin) with a user-editable replacement dictionary (stored in the
+  DB, shared across the user's projects, editable in the UI, applied
+  automatically) and diagnostics for unrecognized cases. The final editorial
+  pass also fixes distorted Russian words, agreement errors, and narrative
+  inconsistencies.
+
 
 > Note: the generated content and the user interface are primarily in Russian.
 
@@ -49,7 +54,7 @@ episode structure, a description, and the final spoken text split by roles.
 
 - Python 3.10+
 - Streamlit — web interface
-- OpenAI API — text generation (default model: gpt-4o-mini)
+- OpenAI API — text generation (default model: gpt-5.4-mini)
 - SQLite — persistent storage (podcast_planner.db)
 - python-docx — Word export
 - pypdf, python-docx, python-pptx, openpyxl — text extraction from files
@@ -89,7 +94,7 @@ episode structure, a description, and the final spoken text split by roles.
 4. Create a `.env` file in the project root:
 
        OPENAI_API_KEY=sk-...           # required
-       OPENAI_MODEL=gpt-4o-mini        # optional, default: gpt-4o-mini
+       OPENAI_MODEL=gpt-5.4-mini        # optional, default: gpt-5.4-mini
        DB_PATH=podcast_planner.db      # optional, default: podcast_planner.db
 
 5. Run the app:
@@ -130,8 +135,10 @@ On first launch, create an account on the "Регистрация" (Register) ta
 
 - Passwords are stored hashed (see `auth_service.py`).
 - Foreign keys cascade: deleting a user removes their materials and projects.
-- The "fairytale" tone is constrained by default to produce content that is
-  safe and appropriate for children.
+- Child-safety rules are applied automatically when the audience is detected as
+  a children's audience (for any format, not only fairytale), and can be
+  overridden via the extra notes.
+
 
 ## Notes & Limitations
 
@@ -141,3 +148,47 @@ On first launch, create an account on the "Регистрация" (Register) ta
   is recommended (especially for factual nuances).
 - Source text sent to the model is truncated (~12,000 characters) to limit
   prompt size.
+
+**Screenshots:** <br>
+<a href="images/gen_ideas.png" target="_blank">
+  <img src="images/gen_ideas.png" alt="Main app screen with filled podcast parameters: title, duration, audience, format, style, guest name" title="Main app screen with filled podcast parameters: title, duration, audience, format, style, guest name" height="100">
+</a>
+<a href="images/menu1.png" target="_blank">
+  <img src="images/menu1.png" alt="Podcast parameters menu for scientific article (part 1)" title="Podcast parameters menu for scientific article (part 1)" height="100">
+</a>
+<a href="images/menu2.png" target="_blank">
+  <img src="images/menu2.png" alt="Podcast parameters menu for scientific article (part 2)" title="Podcast parameters menu for scientific article (part 2)" height="100">
+</a>
+<a href="images/menu3.png" target="_blank">
+  <img src="images/menu3.png" alt="Uploading source file (PDF/DOCX book)" title="Uploading source file (PDF/DOCX book)" height="100">
+</a>
+<a href="images/menu4.png" target="_blank">
+  <img src="images/menu4.png" alt="Adding article link as a source" title="Adding article link as a source" height="100">
+</a>
+<a href="images/conspect.png" target="_blank">
+  <img src="images/conspect.png" alt="Completed article summary that can be used as a podcast source" title="Completed article summary that can be used as a podcast source" height="100">
+</a>
+<a href="images/ideas_chem.png" target="_blank">
+  <img src="images/ideas_chem.png" alt="Generated episode ideas" title="Generated episode ideas" height="100">
+</a>
+<a href="images/content_chem.png" target="_blank">
+  <img src="images/content_chem.png" alt="Content plan for multiple episodes" title="Content plan for multiple episodes" height="100">
+</a>
+<a href="images/struc_chem.png" target="_blank">
+  <img src="images/struc_chem.png" alt="Episode structure with blocks and timing" title="Episode structure with blocks and timing" height="100">
+</a>
+<a href="images/tts_screen.png" target="_blank">
+  <img src="images/tts_screen.png" alt="Voiceover script with role breakdown and generation progress indicator" title="Voiceover script with role breakdown and generation progress indicator" height="100">
+</a>
+<a href="images/tts_rec.png" target="_blank">
+  <img src="images/tts_rec.png" alt="Voice recommendations for speech synthesis" title="Voice recommendations for speech synthesis" height="100">
+</a>
+<a href="images/tts_word.png" target="_blank">
+  <img src="images/tts_word.png" alt="Completed Word file with technical header: podcast title, duration, audience, style, participants" title="Completed Word file with technical header: podcast title, duration, audience, style, participants" height="100">
+</a>
+<a href="images/ideas_tale.png" target="_blank">
+  <img src="images/ideas_tale.png" alt="Example of using 'fairy tale' format and style: episode ideas" title="Example of using 'fairy tale' format and style: episode ideas" height="100">
+</a>
+<a href="images/tts_tale.png" target="_blank">
+  <img src="images/tts_tale.png" alt="Example of using 'fairy tale' format and style: voiceover script" title="Example of using 'fairy tale' format and style: voiceover script" height="100">
+</a>
